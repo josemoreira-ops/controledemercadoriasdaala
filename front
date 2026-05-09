@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portaria - Entregas</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; padding: 20px; }
+        .card { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn { padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px;}
+        .btn-green { background: #28a745; }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;}
+        #modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); padding: 20px; box-sizing: border-box;}
+        .modal-content { background: white; padding: 20px; border-radius: 8px; margin-top: 50px; }
+    </style>
+</head>
+<body>
+
+    <h2>Entrada de Mercadoria</h2>
+    <div class="card">
+        <input type="text" id="apto" placeholder="Apto / Bloco (ex: 101B)">
+        <button class="btn" onclick="registrarEntrada()">Registrar Chegada</button>
+    </div>
+
+    <h2>Pendentes na Portaria</h2>
+    <div id="lista-pendentes">Carregando...</div>
+
+    <!-- Modal de Baixa -->
+    <div id="modal">
+        <div class="modal-content">
+            <h3>Dar Baixa - Entrega</h3>
+            <p id="modal-apto"></p>
+            <input type="hidden" id="modal-id">
+            <input type="text" id="modal-cpf" placeholder="CPF do Morador">
+            <input type="file" id="modal-foto" accept="image/*" capture="environment">
+            <button class="btn btn-green" onclick="registrarSaida()" id="btn-salvar">Confirmar Entrega</button>
+            <button class="btn" style="background: #dc3545;" onclick="fecharModal()">Cancelar</button>
+        </div>
+    </div>
+
+    <script>
+        // COLOQUE AQUI A URL QUE O APPS SCRIPT GEROU NO PASSO 2
+        const API_URL = "https://script.google.com/macros/s/AKfycbwqYN_kqjoCDmfinhhZvbjcJFDM0VxyXW5hOiYpXdImYlNN9Z3yGimxJRC0QIXYF4N4/exec";
+
+        // Carrega as pendências ao abrir a tela
+        window.onload = carregarPendentes;
+
+        async function carregarPendentes() {
+            const resp = await fetch(API_URL);
+            const dados = await resp.json();
+            const div = document.getElementById("lista-pendentes");
+            div.innerHTML = "";
+            
+            if(dados.length === 0) {
+                div.innerHTML = "<p>Nenhuma encomenda pendente.</p>";
+                return;
+            }
+
+            dados.forEach(item => {
+                div.innerHTML += `
+                    <div class="card">
+                        <strong>Apto/Bloco:</strong> ${item.apto_bloco} <br>
+                        <small>Chegou em: ${item.data_entrada}</small>
+                        <button class="btn btn-green" onclick="abrirModal('${item.id}', '${item.apto_bloco}')">Entregar ao Morador</button>
+                    </div>
+                `;
+            });
+        }
+
+        async function registrarEntrada() {
+            const apto = document.getElementById("apto").value;
+            if(!apto) return alert("Digite o apartamento/bloco.");
+
+            document.querySelector(".btn").innerText = "Registrando...";
+            
+            await fetch(API_URL, {
+                method: "POST",
+                body: JSON.stringify({ acao: "entrada", apto_bloco: apto })
+            });
+
+            document.getElementById("apto").value = "";
+            document.querySelector(".btn").innerText = "Registrar Chegada";
+            carregarPendentes();
+        }
+
+        function abrirModal(id, apto) {
+            document.getElementById("modal-id").value = id;
+            document.getElementById("modal-apto").innerText = "Destino: " + apto;
+            document.getElementById("modal").style.display = "block";
+        }
+
+        function fecharModal() {
+            document.getElementById("modal").style.display = "none";
+            document.getElementById("modal-cpf").value = "";
+            document.getElementById("modal-foto").value = "";
+        }
+
+        // Função de compressão de imagem (Evita travar o envio)
+        function comprimirImagem(file, callback) {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = event => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const MAX_WIDTH = 800; // Redimensiona para max 800px
+                    const scaleSize = MAX_WIDTH / img.width;
+                    canvas.width = MAX_WIDTH;
+                    canvas.height = img.height * scaleSize;
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    callback(canvas.toDataURL('image/jpeg', 0.6)); // 60% de qualidade
+                }
+            }
+        }
+
+        async function registrarSaida() {
+            const id = document.getElementById("modal-id").value;
+            const cpf = document.getElementById("modal-cpf").value;
+            const fileInput = document.getElementById("modal-foto");
+
+            if(!cpf || fileInput.files.length === 0) return alert("CPF e Foto são obrigatórios!");
+
+            document.getElementById("btn-salvar").innerText = "Enviando e Salvando...";
+            document.getElementById("btn-salvar").disabled = true;
+
+            // Comprime e envia
+            comprimirImagem(fileInput.files[0], async (base64) => {
+                await fetch(API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({ acao: "saida", id: id, cpf: cpf, foto_base64: base64 })
+                });
+
+                document.getElementById("btn-salvar").innerText = "Confirmar Entrega";
+                document.getElementById("btn-salvar").disabled = false;
+                fecharModal();
+                carregarPendentes();
+            });
+        }
+    </script>
+</body>
+</html>
